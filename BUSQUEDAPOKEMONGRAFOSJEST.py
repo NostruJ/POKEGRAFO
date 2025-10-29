@@ -1,136 +1,179 @@
 import requests
-import json
-from typing import Dict, List, Optional
+from functools import lru_cache
+from bisect import bisect_left # Importamos la herramienta estándar para búsqueda binaria
 
-URL_EVOLUCION = "https://pokeapi.co/api/v2/evolution-chain/1/" 
+# --- Clases de Datos (Nodos y Grafo) ---
 
-def construir_grafo(nodo: Dict, grafo: Dict[str, List[str]]):
-    nombre_base = nodo['species']['name']
-    
-    if nombre_base not in grafo:
-        grafo[nombre_base] = []
+class NodoPokemon:
+    """Representa un Pokémon en el grafo de evolución."""
+    def __init__(self, nombre: str):
+        self.nombre = nombre
+        self.hijos = []
 
-    for evo in nodo.get('evolves_to', []):
-        nombre_evolucionado = evo['species']['name']
-        grafo[nombre_base].append(nombre_evolucionado)
+    def agregar_hijo(self, nodo_hijo):
+        self.hijos.append(nodo_hijo)
+
+class GrafoEvolucion:
+    """Construye y gestiona el grafo de evolución a partir de la PokeAPI."""
+    def __init__(self, nombre_especie: str):
+        self.nombre_especie = nombre_especie
+        self.raiz = None
+
+    @lru_cache(maxsize=128)
+    def _obtener_datos_cadena(self, especie_base: str):
+        """
+        Obtiene la cadena de evolución de la PokeAPI.
+        Usa lru_cache para evitar peticiones redundantes.
+        """
+        url_especie = f"https://pokeapi.co/api/v2/pokemon-species/{especie_base.lower()}/"
         
-        construir_grafo(evo, grafo)
-
-
-def obtener_datos() -> Optional[Dict]:
-    try:
-        print(">> Conectando a la API y obteniendo la cadena de Bulbasaur...")
-        respuesta = requests.get(URL_EVOLUCION)
-        respuesta.raise_for_status() 
-        datos = respuesta.json()
+        # Petición a la API
+        response = requests.get(url_especie)
+        response.raise_for_status()  # Lanza un error si el código es 4xx o 5xx
+        datos_especie = response.json()
         
-        grafo_evolucion: Dict[str, List[str]] = {}
-        construir_grafo(datos['chain'], grafo_evolucion)
+        url_cadena_evolucion = datos_especie["evolution_chain"]["url"]
         
-        nodos_ordenados = sorted(grafo_evolucion.keys())
+        response_chain = requests.get(url_cadena_evolucion)
+        response_chain.raise_for_status()
         
-        print(f">> Grafo listo. Nodos consultables: {len(nodos_ordenados)}.")
+        datos_cadena = response_chain.json()["chain"]
+        return datos_cadena
 
-        return {
-            "grafo": grafo_evolucion,
-            "nodos_ordenados": nodos_ordenados
-        }
-
-    except requests.exceptions.RequestException as e:
-        print(f"!! Error al obtener datos: {e}")
-        return None
-
-
-def buscar_pokemon(lista_ordenada: List[str], objetivo: str) -> bool:
-    objetivo_lower = objetivo.lower()
-    izquierda, derecha = 0, len(lista_ordenada) - 1
-
-    while izquierda <= derecha:
-        medio = (izquierda + derecha) // 2
+    def construir_grafo(self):
+        """Construye el grafo principal manejando errores de API."""
+        try:
+            # La función cacheadora espera el nombre_especie como argumento
+            datos_cadena = self._obtener_datos_cadena(self.nombre_especie)
+            self.raiz = self._construir_cadena_recursivo(datos_cadena)
+            print("✅ Grafo de evolución creado correctamente.\n")
         
-        if lista_ordenada[medio] == objetivo_lower:
-            return True
-        elif lista_ordenada[medio] < objetivo_lower:
-            izquierda = medio + 1
-        else:
-            derecha = medio - 1
-            
+        except requests.exceptions.HTTPError as e:
+            # Error común si el Pokémon no existe (ej. 404)
+            print(f"❌ Error HTTP al construir el grafo: No se encontró el Pokémon base '{self.nombre_especie}'. ({e})")
+        except requests.exceptions.RequestException as e:
+            # Error de conexión o red
+            print(f"❌ Error de conexión al construir el grafo para '{self.nombre_especie}': {e}")
+        except KeyError:
+            # Error si la estructura de la API cambia inesperadamente
+            print(f"❌ Error de datos: La estructura de la respuesta de la API no es la esperada para '{self.nombre_especie}'.")
+        except Exception as e:
+            # Cualquier otro error
+            print(f"❌ Error desconocido al construir el grafo para '{self.nombre_especie}': {e}")
+
+
+    def _construir_cadena_recursivo(self, datos_cadena: dict):
+        """Crea nodos recursivamente a partir de los datos de la API."""
+        nodo = NodoPokemon(datos_cadena["species"]["name"])
+        for evoluciona_a in datos_cadena["evolves_to"]:
+            nodo_hijo = self._construir_cadena_recursivo(evoluciona_a)
+            nodo.agregar_hijo(nodo_hijo)
+        return nodo
+
+    def obtener_todos_pokemon(self) -> list:
+        """Retorna una lista ordenada con todos los nombres de Pokémon del grafo."""
+        lista_pokemons = []
+        self._recolectar_pokemons_recursivo(self.raiz, lista_pokemons)
+        return sorted(lista_pokemons)
+
+    def _recolectar_pokemons_recursivo(self, nodo: NodoPokemon, lista_pokemons: list):
+        """Recorre el grafo (DFS) y agrega nombres a la lista."""
+        if nodo:
+            lista_pokemons.append(nodo.nombre)
+            for hijo in nodo.hijos:
+                self._recolectar_pokemons_recursivo(hijo, lista_pokemons)
+
+# --- Función de Búsqueda Binaria Pythonica ---
+
+def buscar_binario(lista_ordenada: list, objetivo: str) -> bool:
+    """
+    Realiza una búsqueda binaria eficiente usando bisect_left.
+    Devuelve True si el objetivo está en la lista ordenada.
+    """
+    # bisect_left encuentra el índice donde se insertaría el objetivo para mantener el orden.
+    indice = bisect_left(lista_ordenada, objetivo)
+
+    # Si el índice está dentro de los límites de la lista
+    # Y el elemento en ese índice es exactamente el objetivo, entonces se encuentra.
+    if indice != len(lista_ordenada) and lista_ordenada[indice] == objetivo:
+        return True
     return False
 
+# --- Programa Principal ---
 
-def imprimir_cadena(grafo: Dict[str, List[str]]):
-    print("\n--- CADENA DE EVOLUCIÓN (Bulbasaur) ---")
-    
-    for pokemon, evoluciones in grafo.items():
-        nombre = pokemon.capitalize()
-        
-        if evoluciones:
-            evol_str = " -> ".join(e.capitalize() for e in evoluciones)
-            print(f" * {nombre} -> {evol_str}")
-        else:
-            print(f" * {nombre} (Final)")
-    
-    print("-" * 40)
+def principal():
+    POKEMON_DISPONIBLES = [
+        "bulbasaur",
+        "charmander",
+        "squirtle",
+        "caterpie",
+        "weedle",
+        "pidgey",
+        "ralts",
+        "eevee",
+        "abra",
+        "machop"
+    ]
 
-def listar_consultables(nodos_ordenados: List[str]):
-    print("\n--- POKÉMONES EN ESTA CADENA ---")
-    print(f"Total: {len(nodos_ordenados)}")
-    
-    for i, poke in enumerate(nodos_ordenados, 1):
-        print(f"[{i}] {poke.capitalize()}")
-    print("-" * 30)
-
-
-def iniciar_menu(datos: Dict):
-    grafo = datos['grafo']
-    nodos_ordenados = datos['nodos_ordenados']
+    print("=== Poké-Grafo y Optimización ===\n")
 
     while True:
-        print("\n=== MENÚ PRINCIPAL: POKÉ-GRAFO ===")
-        print("1. Buscar Pokémon (Búsqueda Binaria)")
-        print("2. Ver lista de Pokémon consultables")
-        print("3. Ver la cadena de evolución (Grafo)")
-        print("4. Salir")
-        print("---------------------------------")
-        
-        opcion = input("Selecciona una opción (1-4): ").strip()
+        print("\nSeleccione cómo desea buscar:")
+        print("1. Escribir manualmente el nombre de un Pokémon base")
+        print("2. Elegir de una lista de Pokémon disponibles")
+        print("3. Salir")
 
-        if opcion == '1':
-            print("\n-- BÚSQUEDA --")
-            objetivo = input("Nombre del Pokémon a buscar: ").strip()
-            
-            if not objetivo:
-                print("!! Nombre no puede estar vacío.")
-                continue
+        opcion_modo = input("\nIngrese una opción (1, 2 o 3): ").strip()
 
-            encontrado = buscar_pokemon(nodos_ordenados, objetivo)
-            
-            print("\n-- RESULTADO --")
-            print(f"Buscado: {objetivo.capitalize()}")
-            
-            if encontrado:
-                print("Status: ✅ ENCONTRADO.")
-            else:
-                print("Status: ❌ NO ENCONTRADO. (No está en la cadena de Bulbasaur)")
-            print("-" * 15)
-
-        elif opcion == '2':
-            listar_consultables(nodos_ordenados)
-            
-        elif opcion == '3':
-            imprimir_cadena(grafo)
-
-        elif opcion == '4':
-            print("\n<< Programa finalizado. >>")
+        if opcion_modo == "3":
+            print("\n👋 ¡Gracias por usar el Poké-Grafo!")
             break
-        
+
+        if opcion_modo == "1":
+            nombre_pokemon_inicial = input("\nIngrese el nombre del Pokémon base: ").strip().lower()
+
+        elif opcion_modo == "2":
+            print("\nPokémon base disponibles para consultar:")
+            for i, nombre in enumerate(POKEMON_DISPONIBLES, start=1):
+                print(f"{i}. {nombre.capitalize()}")
+
+            seleccion_opcion = input("\nElija un Pokémon (nombre o número): ").strip().lower()
+
+            if seleccion_opcion.isdigit() and 1 <= int(seleccion_opcion) <= len(POKEMON_DISPONIBLES):
+                nombre_pokemon_inicial = POKEMON_DISPONIBLES[int(seleccion_opcion) - 1]
+            elif seleccion_opcion in POKEMON_DISPONIBLES:
+                nombre_pokemon_inicial = seleccion_opcion
+            else:
+                print("⚠️ Opción no válida. Intenta nuevamente.\n")
+                continue
         else:
-            print("!! Opción no válida. Intenta con 1, 2, 3 o 4.")
+            print("⚠️ Opción inválida. Por favor, seleccione 1, 2 o 3.\n")
+            continue
 
+        grafo = GrafoEvolucion(nombre_pokemon_inicial)
+        grafo.construir_grafo()
+        
+        if not grafo.raiz:
+            # Si la construcción falló (ej. no existe el Pokémon), volvemos al menú.
+            continue
 
-# --- Ejecución Directa ---
+        pokemons_en_cadena = grafo.obtener_todos_pokemon()
+        print("Cadena de evolución completa:")
+        print(" → ".join(pokemons_en_cadena))
 
-datos_iniciales = obtener_datos()
+        while True:
+            objetivo_busqueda = input("\nIngrese el nombre de un Pokémon para buscar en la cadena: ").strip().lower()
+            
+            # Usamos la función optimizada de búsqueda binaria
+            encontrado = buscar_binario(pokemons_en_cadena, objetivo_busqueda)
 
-if datos_iniciales:
-    iniciar_menu(datos_iniciales)
+            if encontrado:
+                print(f"✅ El Pokémon '{objetivo_busqueda}' SÍ está en la cadena de evolución de {nombre_pokemon_inicial}.")
+            else:
+                print(f"❌ El Pokémon '{objetivo_busqueda}' NO está en la cadena de evolución de {nombre_pokemon_inicial}.")
+
+            otra_busqueda = input("\n¿Desea buscar otro Pokémon dentro de esta cadena? (s/n): ").strip().lower()
+            if otra_busqueda != "s":
+                break
+
+principal()

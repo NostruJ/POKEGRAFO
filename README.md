@@ -1,18 +1,26 @@
-# BUSQUEDAPOKEMONGRAFOSJEST (Poké-Grafo y Optimización)
+# ⚡ Poké-Grafo y Búsqueda Binaria (Pokémon Evolution Graph and Binary Search)
 
-Este proyecto Python utiliza la **PokéAPI** para obtener y modelar la cadena de evolución de **Bulbasaur (ID 1)** como un **Grafo de Lista de Adyacencia**. Implementa el algoritmo de **Búsqueda Binaria** para verificar la existencia de Pokémon dentro de esta cadena de forma eficiente.
+Este proyecto es una aplicación de consola en Python diseñada para construir el **grafo de evolución** de cualquier Pokémon base utilizando la **PokeAPI**. Una vez construida la cadena de evolución, utiliza un algoritmo de **búsqueda binaria** altamente eficiente para determinar rápidamente si un Pokémon específico forma parte de esa cadena.
 
-## Español (Spanish) 🇪🇸
+El código está optimizado con **caching** y un manejo de errores robusto para garantizar un rendimiento óptimo y evitar peticiones redundantes a la API.
 
-### 🎯 Finalidad
+---
 
-1.  **Modelado de Grafos:** Representar la estructura de evolución (nodos: Pokémon, aristas: evolución) usando recursividad y diccionarios de Python.
-2.  **Optimización:** Usar la Búsqueda Binaria ($O(\log n)$) para demostrar una búsqueda rápida de nodos en la lista ordenada del grafo.
+## 🇪🇸 Documentación en Español
+
+### 📝 Descripción
+
+La aplicación modela la cadena de evolución como un **Grafo Dirigido** (`GrafoEvolucion`), donde cada Pokémon es un **Nodo** (`NodoPokemon`).
+
+* **Optimización:** Utiliza `@lru_cache` para guardar en memoria las cadenas de evolución ya consultadas, evitando peticiones repetidas a la PokeAPI.
+* **Eficiencia:** Implementa la función `buscar_binario` basada en el módulo estándar de Python `bisect`, ofreciendo una complejidad de tiempo de **$O(\log n)$** (logarítmica) para la búsqueda.
 
 ### ⚙️ Requisitos
 
 * Python 3.x
-* Librería `requests`:
+* Librería `requests`
+
+Para instalar la librería `requests`:
 
 ```bash
 pip install requests
